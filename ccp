@@ -33,7 +33,13 @@ copy_cred() {  # copy_cred <dir origen> <dir destino>
   local s_svc acct; s_svc=$(svc_of "$1")
   acct=$(security find-generic-password -s "$s_svc" 2>/dev/null | sed -n 's/.*"acct"<blob>="\(.*\)"$/\1/p')
   [[ -n $acct ]] || { echo "ccp: ${1##*/} no tiene sesión en el Keychain" >&2; exit 1; }
-  security add-generic-password -U -a "$acct" -s "$(svc_of "$2")" -w "$(security find-generic-password -s "$s_svc" -w)"
+  local d_svc hex; d_svc=$(svc_of "$2")
+  hex=$(printf '%s' "$(security find-generic-password -s "$s_svc" -w)" | xxd -p | tr -d '\n')  # sin el \n final
+  # El token entra por stdin a `security -i` (no en argv, no se ve en `ps`). `-w` sin valor
+  # tampoco sirve: lee de stdin con getpass y corta a 128 caracteres.
+  printf 'add-generic-password -U -a "%s" -s "%s" -X %s\n' "$acct" "$d_svc" "$hex" | security -i
+  [[ $(security find-generic-password -s "$d_svc" -w) == "$(security find-generic-password -s "$s_svc" -w)" ]] \
+    || { echo "ccp: la copia del login no coincide con el original; no toco nada más" >&2; exit 1; }
 }
 link_shared() {
   local f cj="$1/.claude.json"
