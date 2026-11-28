@@ -49,6 +49,20 @@ link_shared() {
   # Los MCP de usuario viven en ~/.claude.json junto al login: se copia solo .mcpServers.
   if [[ -f $HOME/.claude.json ]]; then
     [[ -f $cj ]] || echo '{}' > "$cj"
+    # Un .claude.json dañado (p. ej. páginas en cero tras un cierre sucio) tumbaba jq y no abría
+    # el perfil: se restaura el respaldo válido más reciente que Claude Code deja en backups/.
+    # `jq empty` acepta un archivo de puros \0; por eso se exige un objeto.
+    if ! jq -e 'type == "object"' "$cj" >/dev/null 2>&1; then
+      local b i ok="" bs=("$1"/backups/.claude.json.backup.*)  # sufijo = epoch ms: el último es el más nuevo
+      for ((i = ${#bs[@]} - 1; i >= 0; i--)); do
+        b=${bs[i]}
+        if jq -e 'type == "object"' "$b" >/dev/null 2>&1; then ok=$b; break; fi
+      done
+      [[ -n $ok ]] || { echo "ccp: ${1##*/}/.claude.json está dañado y no hay respaldo válido" >&2; exit 1; }
+      mv "$cj" "$1/backups/.claude.json.corrupted.ccp.$(date +%s)"
+      cp -p "$ok" "$cj"
+      echo "ccp: ${1##*/}/.claude.json estaba dañado; restauré ${ok##*/}" >&2
+    fi
     jq --argjson m "$(jq '.mcpServers // {}' "$HOME/.claude.json")" '.mcpServers = $m' "$cj" > "$cj.tmp"
     chmod 600 "$cj.tmp" && mv "$cj.tmp" "$cj"
   fi
